@@ -1,22 +1,219 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <link rel="stylesheet" href="styles.css" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>PakePlus App</title>
-        <script type="module" src="/main.js" defer></script>
-    </head>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>简单图片编辑器</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin: 0; background: #f0f0f0; }
+    #editor {
+      width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+      overflow: hidden; position: relative;
+      background: #fff;
+    }
+    #canvas {
+      background: #eee;
+      touch-action: none;
+      border: 1px solid #ccc;
+      max-width: 90vw;
+      max-height: 80vh;
+    }
+    #upload, #delete {
+      position: absolute; top: 10px; z-index: 10;
+      padding: 4px 10px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #fff;
+      cursor: pointer;
+    }
+    #upload { left: 10px; width: 200px; }
+    #delete { right: 10px; }
+  </style>
+</head>
+<body>
+  <div id="editor">
+    <input type="file" id="upload" accept="image/*">
+    <button id="delete">删除图片</button>
+    <canvas id="canvas" width="600" height="400"></canvas>
+  </div>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const upload = document.getElementById('upload');
+    const delBtn = document.getElementById('delete');
 
-    <body>
-        <main class="container">
-            <h1>Welcome to PakePlus</h1>
+    let img = null;
+    let imgState = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      scale: 1,
+      rotation: 0,
+      width: 0,
+      height: 0,
+    };
 
-            <form class="row" id="greet-form">
-                <input id="greet-input" placeholder="Enter a name..." />
-                <button type="submit">Greet</button>
-            </form>
-            <p id="greet-msg"></p>
-        </main>
-    </body>
+    function resetImgState() {
+      imgState = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        scale: 1,
+        rotation: 0,
+        width: 0,
+        height: 0,
+      };
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!img) return;
+      ctx.save();
+      ctx.translate(imgState.x, imgState.y);
+      ctx.rotate(imgState.rotation);
+      ctx.scale(imgState.scale, imgState.scale);
+      ctx.drawImage(img, -imgState.width/2, -imgState.height/2, imgState.width, imgState.height);
+      ctx.restore();
+    }
+
+    upload.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        img = new window.Image();
+        img.onload = function() {
+          imgState.width = img.width;
+          imgState.height = img.height;
+          imgState.scale = Math.min(canvas.width / img.width, canvas.height / img.height, 1);
+          imgState.x = canvas.width / 2;
+          imgState.y = canvas.height / 2;
+          imgState.rotation = 0;
+          draw();
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // 删除图片功能
+    delBtn.addEventListener('click', () => {
+      img = null;
+      resetImgState();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      upload.value = '';
+    });
+
+    // 交互逻辑
+    let dragging = false, lastX = 0, lastY = 0;
+    let scaling = false, rotating = false;
+    let lastDist = 0, lastAngle = 0;
+    let startScale = 1, startRotation = 0;
+
+    function getTouchPos(e) {
+      if (e.touches && e.touches.length > 0) {
+        const rect = canvas.getBoundingClientRect();
+        return Array.from(e.touches).map(t => ({
+          x: t.clientX - rect.left,
+          y: t.clientY - rect.top
+        }));
+      }
+      return [];
+    }
+
+    // 鼠标事件
+    canvas.addEventListener('mousedown', e => {
+      if (!img) return;
+      dragging = true;
+      lastX = e.offsetX;
+      lastY = e.offsetY;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (dragging && img) {
+        imgState.x += e.offsetX - lastX;
+        imgState.y += e.offsetY - lastY;
+        lastX = e.offsetX;
+        lastY = e.offsetY;
+        draw();
+      }
+    });
+    canvas.addEventListener('mouseup', () => dragging = false);
+    canvas.addEventListener('mouseleave', () => dragging = false);
+
+    // 鼠标滚轮缩放
+    canvas.addEventListener('wheel', e => {
+      if (!img) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1.05 : 0.95;
+      imgState.scale *= delta;
+      imgState.scale = Math.max(0.1, Math.min(10, imgState.scale));
+      draw();
+    });
+
+    // 右键旋转
+    canvas.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      if (!img) return;
+      imgState.rotation += Math.PI / 18; // 10度
+      draw();
+    });
+
+    // 触摸事件
+    canvas.addEventListener('touchstart', e => {
+      if (!img) return;
+      if (e.touches.length === 1) {
+        dragging = true;
+        scaling = false;
+        rotating = false;
+        const pos = getTouchPos(e)[0];
+        lastX = pos.x;
+        lastY = pos.y;
+      } else if (e.touches.length === 2) {
+        dragging = false;
+        scaling = true;
+        rotating = true;
+        const [p1, p2] = getTouchPos(e);
+        lastDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        lastAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        startScale = imgState.scale;
+        startRotation = imgState.rotation;
+      }
+    }, {passive: false});
+
+    canvas.addEventListener('touchmove', e => {
+      if (!img) return;
+      e.preventDefault();
+      if (dragging && e.touches.length === 1) {
+        const pos = getTouchPos(e)[0];
+        imgState.x += pos.x - lastX;
+        imgState.y += pos.y - lastY;
+        lastX = pos.x;
+        lastY = pos.y;
+        draw();
+      } else if (scaling && e.touches.length === 2) {
+        const [p1, p2] = getTouchPos(e);
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        imgState.scale = startScale * (dist / lastDist);
+        imgState.scale = Math.max(0.1, Math.min(10, imgState.scale));
+        imgState.rotation = startRotation + (angle - lastAngle);
+        draw();
+      }
+    }, {passive: false});
+
+    canvas.addEventListener('touchend', e => {
+      if (e.touches.length === 0) {
+        dragging = false;
+        scaling = false;
+        rotating = false;
+      }
+    });
+
+    // 防止页面滚动
+    document.body.addEventListener('touchmove', function(e) {
+      if (e.target === canvas) e.preventDefault();
+    }, {passive: false});
+  </script>
+</body>
 </html>
